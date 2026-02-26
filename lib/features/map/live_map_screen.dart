@@ -12,8 +12,9 @@ class LiveMapScreen extends StatefulWidget {
 class _LiveMapScreenState extends State<LiveMapScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _sheetController;
-  late final Animation<Offset> _sheetSlide;
   bool _sheetVisible = true;
+  double _dragOffset = 0;
+  double _sheetHeight = 0;
 
   @override
   void initState() {
@@ -21,14 +22,11 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     _sheetController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
-    );
-    _sheetSlide = Tween<Offset>(
-      begin: Offset.zero,
-      end: const Offset(0, 1.5),
-    ).animate(CurvedAnimation(
-      parent: _sheetController,
-      curve: Curves.easeInOut,
-    ));
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed && !_sheetVisible) {
+          // Animation to dismiss finished
+        }
+      });
   }
 
   @override
@@ -37,14 +35,68 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     super.dispose();
   }
 
+  void _onDragUpdate(double dy) {
+    setState(() {
+      _dragOffset = (_dragOffset + dy).clamp(0, double.infinity);
+    });
+  }
+
+  void _onDragEnd(double velocity) {
+    // Dismiss if dragged more than 30% or with high velocity
+    if (_dragOffset > _sheetHeight * 0.3 || velocity > 300) {
+      _dismissSheet();
+    } else {
+      _snapBack();
+    }
+  }
+
+  void _dismissSheet() {
+    final remaining = (_sheetHeight * 1.5) - _dragOffset;
+    final duration = Duration(
+      milliseconds: (remaining / (_sheetHeight * 1.5) * 300).clamp(100, 300).toInt(),
+    );
+    _sheetController.duration = duration;
+    _sheetController.forward(from: 0).then((_) {
+      setState(() {
+        _sheetVisible = false;
+        _dragOffset = 0;
+      });
+    });
+  }
+
+  void _snapBack() {
+    final startOffset = _dragOffset;
+    _sheetController.duration = const Duration(milliseconds: 200);
+    _sheetController.forward(from: 0);
+    _sheetController.addListener(_snapListener(startOffset));
+  }
+
+  VoidCallback _snapListener(double startOffset) {
+    late VoidCallback listener;
+    listener = () {
+      setState(() {
+        _dragOffset = startOffset * (1 - _sheetController.value);
+      });
+      if (_sheetController.isCompleted) {
+        _sheetController.removeListener(listener);
+        _sheetController.reset();
+        setState(() => _dragOffset = 0);
+      }
+    };
+    return listener;
+  }
+
   void _hideSheet() {
-    _sheetController.forward();
-    setState(() => _sheetVisible = false);
+    setState(() => _dragOffset = 0);
+    _dismissSheet();
   }
 
   void _showSheet() {
-    _sheetController.reverse();
-    setState(() => _sheetVisible = true);
+    setState(() {
+      _sheetVisible = true;
+      _dragOffset = 0;
+    });
+    _sheetController.reset();
   }
 
   @override
@@ -204,15 +256,31 @@ class _LiveMapScreenState extends State<LiveMapScreen>
         ),
 
         // Bottom info sheet
-        Positioned(
-          left: 20,
-          right: 20,
-          bottom: MediaQuery.of(context).size.height * 0.12,
-          child: SlideTransition(
-            position: _sheetSlide,
-            child: _RouteInfoSheet(onDismiss: _hideSheet),
+        if (_sheetVisible)
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(context).size.height * 0.12,
+            child: AnimatedBuilder(
+              animation: _sheetController,
+              builder: (context, child) {
+                // During dismiss animation, continue sliding down from current drag offset
+                final animOffset = _sheetController.isAnimating && !_sheetVisible
+                    ? _sheetController.value * (_sheetHeight * 1.5 - _dragOffset)
+                    : 0.0;
+                return Transform.translate(
+                  offset: Offset(0, _dragOffset + animOffset),
+                  child: child,
+                );
+              },
+              child: _RouteInfoSheet(
+                onDismiss: _hideSheet,
+                onDragUpdate: _onDragUpdate,
+                onDragEnd: _onDragEnd,
+                onMeasured: (height) => _sheetHeight = height,
+              ),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -304,51 +372,63 @@ class _FloatButton extends StatelessWidget {
 
 class _RouteInfoSheet extends StatelessWidget {
   final VoidCallback onDismiss;
+  final ValueChanged<double> onDragUpdate;
+  final ValueChanged<double> onDragEnd;
+  final ValueChanged<double> onMeasured;
 
-  const _RouteInfoSheet({required this.onDismiss});
+  const _RouteInfoSheet({
+    required this.onDismiss,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.onMeasured,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(
-            offset: Offset(0, 12),
-            blurRadius: 32,
-            color: Color(0x1F2D2345),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle — tap or drag down to dismiss
-          GestureDetector(
-            onTap: onDismiss,
-            onVerticalDragEnd: (details) {
-              if (details.primaryVelocity != null &&
-                  details.primaryVelocity! > 100) {
-                onDismiss();
-              }
-            },
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Center(
-                child: Container(
-                  width: 48,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(3),
+    // Measure the sheet height after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final box = context.findRenderObject() as RenderBox?;
+      if (box != null) onMeasured(box.size.height);
+    });
+
+    return GestureDetector(
+      onVerticalDragUpdate: (details) => onDragUpdate(details.delta.dy),
+      onVerticalDragEnd: (details) =>
+          onDragEnd(details.primaryVelocity ?? 0),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(
+              offset: Offset(0, 12),
+              blurRadius: 32,
+              color: Color(0x1F2D2345),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle — tap to dismiss
+            GestureDetector(
+              onTap: onDismiss,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Center(
+                  child: Container(
+                    width: 48,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           // Title row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -569,6 +649,7 @@ class _RouteInfoSheet extends StatelessWidget {
           ),
         ],
       ),
+    ),
     );
   }
 
