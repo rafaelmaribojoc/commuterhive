@@ -197,49 +197,43 @@ class _XpRingPainter extends CustomPainter {
 class _StatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cellWidth = (constraints.maxWidth - 16) / 2;
-        final cellHeight = cellWidth * 0.85;
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: cellWidth / cellHeight,
-          children: const [
-            _StatCard(
-              icon: Icons.campaign,
-              iconBgColor: Color(0x1A4C6FFF),
-              iconColor: AppColors.info,
-              value: '124',
-              label: 'REPORTS',
-            ),
-            _StatCard(
-              icon: Icons.verified_user,
-              iconBgColor: Color(0x1A00C896),
-              iconColor: AppColors.success,
-              value: '98%',
-              label: 'TRUST SCORE',
-            ),
-            _StatCard(
-              icon: Icons.hive,
-              iconBgColor: Color(0x33FFD600),
-              iconColor: AppColors.primaryDark,
-              value: '2,450',
-              label: 'NECTAR',
-            ),
-            _StatCard(
-              icon: Icons.group,
-              iconBgColor: Color(0x1AFF4785),
-              iconColor: AppColors.accent,
-              value: '3.2k',
-              label: 'IMPACT',
-            ),
-          ],
-        );
-      },
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      childAspectRatio: 0.95,
+      children: const [
+        _StatCard(
+          icon: Icons.campaign,
+          iconBgColor: Color(0x1A4C6FFF),
+          iconColor: AppColors.info,
+          value: '124',
+          label: 'REPORTS',
+        ),
+        _StatCard(
+          icon: Icons.verified_user,
+          iconBgColor: Color(0x1A00C896),
+          iconColor: AppColors.success,
+          value: '98%',
+          label: 'TRUST SCORE',
+        ),
+        _StatCard(
+          icon: Icons.hive,
+          iconBgColor: Color(0x33FFD600),
+          iconColor: AppColors.primaryDark,
+          value: '2,450',
+          label: 'NECTAR',
+        ),
+        _StatCard(
+          icon: Icons.group,
+          iconBgColor: Color(0x1AFF4785),
+          iconColor: AppColors.accent,
+          value: '3.2k',
+          label: 'IMPACT',
+        ),
+      ],
     );
   }
 }
@@ -273,32 +267,39 @@ class _StatCard extends StatelessWidget {
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: iconBgColor,
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: iconColor),
+            child: Icon(icon, color: iconColor, size: 20),
           ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: GoogleFonts.fredoka(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textMain,
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: GoogleFonts.fredoka(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMain,
+              ),
             ),
           ),
-          Text(
-            label,
-            style: GoogleFonts.fredoka(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textMuted,
-              letterSpacing: 0.5,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: GoogleFonts.fredoka(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMuted,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
         ],
