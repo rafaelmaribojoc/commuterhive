@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mapbox;
 import '../../core/theme/app_colors.dart';
+import '../../core/services/route_service.dart';
+import '../../core/models/bus_route.dart';
 
 class LiveMapScreen extends StatefulWidget {
   const LiveMapScreen({super.key});
@@ -13,10 +17,13 @@ class _LiveMapScreenState extends State<LiveMapScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _sheetController;
   double _dragOffset = 0;
-  double _sheetHeight = 300; // default estimate
-  bool _dismissed = false;   // true after sheet is fully off-screen
-  bool _isDismissing = false; // true during dismiss animation
+  double _sheetHeight = 300;
+  bool _dismissed = false;
+  bool _isDismissing = false;
   double _dismissStartOffset = 0;
+
+  mapbox.MapboxMap? _mapboxMap;
+  List<BusRoute> _routes = [];
 
   @override
   void initState() {
@@ -25,6 +32,76 @@ class _LiveMapScreenState extends State<LiveMapScreen>
       vsync: this,
       duration: const Duration(milliseconds: 350),
     );
+    _loadRoutes();
+  }
+
+  Future<void> _loadRoutes() async {
+    final routes = await RouteService.loadAllRoutes();
+    if (mounted) {
+      setState(() => _routes = routes);
+      _addRoutesToMap();
+    }
+  }
+
+  void _onMapCreated(mapbox.MapboxMap map) async {
+    _mapboxMap = map;
+    // Enable 3D buildings
+    await map.style.setStyleImportConfigProperty(
+      'basemap',
+      'showPlaceLabels',
+      true,
+    );
+    _addRoutesToMap();
+  }
+
+  Future<void> _addRoutesToMap() async {
+    final map = _mapboxMap;
+    if (map == null || _routes.isEmpty) return;
+
+    // Add polylines for each route
+    final polylineManager = await map.annotations.createPolylineAnnotationManager();
+    for (final route in _routes) {
+      final coords = route.points
+          .map((p) => mapbox.Position(p.longitude, p.latitude))
+          .toList();
+      if (coords.length < 2) continue;
+
+      await polylineManager.create(
+        mapbox.PolylineAnnotationOptions(
+          geometry: mapbox.LineString(coordinates: coords),
+          lineColor: route.color.value,
+          lineWidth: 4.0,
+          lineOpacity: 0.85,
+        ),
+      );
+    }
+
+    // Add bus stop markers
+    final pointManager = await map.annotations.createPointAnnotationManager();
+    final statusLabels = ['Standing', 'Empty'];
+    var labelIndex = 0;
+
+    for (final route in _routes) {
+      for (final stop in route.stops) {
+        final label = statusLabels[labelIndex % statusLabels.length];
+        labelIndex++;
+
+        await pointManager.create(
+          mapbox.PointAnnotationOptions(
+            geometry: mapbox.Point(
+              coordinates: mapbox.Position(stop.longitude, stop.latitude),
+            ),
+            iconSize: 0.8,
+            textField: '🚌 $label',
+            textSize: 10.0,
+            textOffset: [0, 1.8],
+            textColor: label == 'Empty' ? 0xFF00C896 : 0xFFFFAB00,
+            textHaloColor: 0xFFFFFFFF,
+            textHaloWidth: 1.5,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -135,8 +212,22 @@ class _LiveMapScreenState extends State<LiveMapScreen>
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Map background (placeholder until real MapBox token)
-        Positioned.fill(child: _MapPlaceholder()),
+        // MapBox 3D Map
+        Positioned.fill(
+          child: mapbox.MapWidget(
+            key: const ValueKey('mapbox_map'),
+            cameraOptions: mapbox.CameraOptions(
+              center: mapbox.Point(
+                coordinates: mapbox.Position(125.61, 7.07),
+              ),
+              zoom: 13,
+              pitch: 45,
+              bearing: 0,
+            ),
+            styleUri: mapbox.MapboxStyles.STANDARD,
+            onMapCreated: _onMapCreated,
+          ),
+        ),
 
         // UI Overlays
         Positioned.fill(
@@ -697,222 +788,3 @@ class _RouteInfoSheet extends StatelessWidget {
   }
 }
 
-class _MapPlaceholder extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFFFDFDFC),
-      child: Stack(
-        children: [
-          // Grid background
-          CustomPaint(
-            size: Size.infinite,
-            painter: _MapGridPainter(),
-          ),
-          // Green land patches
-          Positioned(
-            top: MediaQuery.of(context).size.height * 0.1,
-            left: MediaQuery.of(context).size.width * 0.05,
-            child: Transform.rotate(
-              angle: 0.2,
-              child: Container(
-                width: 256,
-                height: 256,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0F7EF),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: MediaQuery.of(context).size.height * 0.2,
-            right: -MediaQuery.of(context).size.width * 0.05,
-            child: Container(
-              width: 320,
-              height: 320,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE0F7EF),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          // Route lines
-          CustomPaint(
-            size: Size.infinite,
-            painter: _RouteLinesPainter(),
-          ),
-          // Bus markers
-          _BusMarker(
-            top: 0.35,
-            left: 0.25,
-            color: AppColors.success,
-            label: 'EMPTY',
-          ),
-          _BusMarker(
-            top: 0.6,
-            left: 0.65,
-            color: AppColors.primary,
-            label: 'STANDING',
-          ),
-          _BusMarker(
-            top: 0.15,
-            left: 0.8,
-            color: AppColors.accent,
-            label: 'FULL',
-          ),
-          // User location dot
-          Center(
-            child: Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.info.withValues(alpha: 0.2),
-              ),
-              child: Center(
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.info,
-                    border: Border.all(color: Colors.white, width: 4),
-                    boxShadow: const [
-                      BoxShadow(
-                        offset: Offset(0, 4),
-                        blurRadius: 8,
-                        color: Color(0x33000000),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BusMarker extends StatelessWidget {
-  final double top;
-  final double left;
-  final Color color;
-  final String label;
-
-  const _BusMarker({
-    required this.top,
-    required this.left,
-    required this.color,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Positioned(
-      top: size.height * top,
-      left: size.width * left,
-      child: Column(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
-              border: Border.all(color: color, width: 3),
-              boxShadow: const [
-                BoxShadow(
-                  offset: Offset(0, 4),
-                  blurRadius: 8,
-                  color: Color(0x33000000),
-                ),
-              ],
-            ),
-            child: Icon(Icons.directions_bus, color: color, size: 24),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: const [
-                BoxShadow(offset: Offset(0, 2), color: Color(0x1A000000)),
-              ],
-            ),
-            child: Text(
-              label,
-              style: GoogleFonts.fredoka(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MapGridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFEEEEEE)
-      ..strokeWidth = 2;
-    const spacing = 100.0;
-    for (var x = 0.0; x < size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (var y = 0.0; y < size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _RouteLinesPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.info.withValues(alpha: 0.8)
-      ..strokeWidth = 8
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final path1 = Path()
-      ..moveTo(-50, 200)
-      ..quadraticBezierTo(150, 250, 180, 400)
-      ..quadraticBezierTo(250, 550, 450, 700);
-    canvas.drawPath(path1, paint);
-
-    final paint2 = Paint()
-      ..color = AppColors.info.withValues(alpha: 0.6)
-      ..strokeWidth = 8
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final path2 = Path()
-      ..moveTo(100, -50)
-      ..quadraticBezierTo(120, 300, 300, 450)
-      ..quadraticBezierTo(400, 550, 600, 600);
-    canvas.drawPath(path2, paint2);
-
-    final road = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 12
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawLine(Offset(0, 500), Offset(500, 300), road);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
