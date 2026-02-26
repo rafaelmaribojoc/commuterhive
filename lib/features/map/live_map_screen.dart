@@ -12,21 +12,19 @@ class LiveMapScreen extends StatefulWidget {
 class _LiveMapScreenState extends State<LiveMapScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _sheetController;
-  bool _sheetVisible = true;
   double _dragOffset = 0;
-  double _sheetHeight = 0;
+  double _sheetHeight = 300; // default estimate
+  bool _dismissed = false;   // true after sheet is fully off-screen
+  bool _isDismissing = false; // true during dismiss animation
+  double _dismissStartOffset = 0;
 
   @override
   void initState() {
     super.initState();
     _sheetController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
-    )..addStatusListener((status) {
-        if (status == AnimationStatus.completed && !_sheetVisible) {
-          // Animation to dismiss finished
-        }
-      });
+      duration: const Duration(milliseconds: 350),
+    );
   }
 
   @override
@@ -36,46 +34,60 @@ class _LiveMapScreenState extends State<LiveMapScreen>
   }
 
   void _onDragUpdate(double dy) {
+    if (_isDismissing) return;
     setState(() {
       _dragOffset = (_dragOffset + dy).clamp(0, double.infinity);
     });
   }
 
   void _onDragEnd(double velocity) {
-    // Dismiss if dragged more than 30% or with high velocity
+    if (_isDismissing) return;
     if (_dragOffset > _sheetHeight * 0.3 || velocity > 300) {
-      _dismissSheet();
+      _animateDismiss();
     } else {
-      _snapBack();
+      _animateSnapBack();
     }
   }
 
-  void _dismissSheet() {
-    final remaining = (_sheetHeight * 1.5) - _dragOffset;
-    final duration = Duration(
-      milliseconds: (remaining / (_sheetHeight * 1.5) * 300).clamp(100, 300).toInt(),
-    );
-    _sheetController.duration = duration;
-    _sheetController.forward(from: 0).then((_) {
-      setState(() {
-        _sheetVisible = false;
-        _dragOffset = 0;
-      });
+  void _animateDismiss() {
+    _isDismissing = true;
+    _dismissStartOffset = _dragOffset;
+    _sheetController.duration = const Duration(milliseconds: 350);
+    _sheetController.reset();
+    _sheetController.forward().then((_) {
+      if (mounted) {
+        setState(() {
+          _dismissed = true;
+          _isDismissing = false;
+          _dragOffset = 0;
+        });
+      }
     });
+    // Animate from current offset to fully off-screen
+    _sheetController.addListener(_dismissListener);
   }
 
-  void _snapBack() {
+  void _dismissListener() {
+    final t = Curves.easeInCubic.transform(_sheetController.value);
+    final target = _sheetHeight + 80; // slide fully past bottom
+    setState(() {
+      _dragOffset = _dismissStartOffset + (target - _dismissStartOffset) * t;
+    });
+    if (_sheetController.isCompleted) {
+      _sheetController.removeListener(_dismissListener);
+    }
+  }
+
+  void _animateSnapBack() {
     final startOffset = _dragOffset;
-    _sheetController.duration = const Duration(milliseconds: 200);
-    _sheetController.forward(from: 0);
-    _sheetController.addListener(_snapListener(startOffset));
-  }
+    _sheetController.duration = const Duration(milliseconds: 250);
+    _sheetController.reset();
 
-  VoidCallback _snapListener(double startOffset) {
     late VoidCallback listener;
     listener = () {
+      final t = Curves.easeOut.transform(_sheetController.value);
       setState(() {
-        _dragOffset = startOffset * (1 - _sheetController.value);
+        _dragOffset = startOffset * (1 - t);
       });
       if (_sheetController.isCompleted) {
         _sheetController.removeListener(listener);
@@ -83,20 +95,40 @@ class _LiveMapScreenState extends State<LiveMapScreen>
         setState(() => _dragOffset = 0);
       }
     };
-    return listener;
+
+    _sheetController.addListener(listener);
+    _sheetController.forward();
   }
 
   void _hideSheet() {
-    setState(() => _dragOffset = 0);
-    _dismissSheet();
+    _animateDismiss();
   }
 
   void _showSheet() {
     setState(() {
-      _sheetVisible = true;
-      _dragOffset = 0;
+      _dismissed = false;
+      _isDismissing = false;
+      _dragOffset = _sheetHeight + 80; // start off-screen
     });
+    _sheetController.duration = const Duration(milliseconds: 400);
     _sheetController.reset();
+
+    late VoidCallback listener;
+    final startOffset = _sheetHeight + 80.0;
+    listener = () {
+      final t = Curves.easeOutCubic.transform(_sheetController.value);
+      setState(() {
+        _dragOffset = startOffset * (1 - t);
+      });
+      if (_sheetController.isCompleted) {
+        _sheetController.removeListener(listener);
+        _sheetController.reset();
+        setState(() => _dragOffset = 0);
+      }
+    };
+
+    _sheetController.addListener(listener);
+    _sheetController.forward();
   }
 
   @override
@@ -243,7 +275,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                 onTap: () {},
               ),
               // Show route info button (visible when sheet is hidden)
-              if (!_sheetVisible) ...[
+              if (_dismissed) ...[
                 const SizedBox(height: 16),
                 _FloatButton(
                   icon: Icons.directions_bus,
@@ -256,23 +288,13 @@ class _LiveMapScreenState extends State<LiveMapScreen>
         ),
 
         // Bottom info sheet
-        if (_sheetVisible)
+        if (!_dismissed)
           Positioned(
             left: 20,
             right: 20,
             bottom: MediaQuery.of(context).size.height * 0.12,
-            child: AnimatedBuilder(
-              animation: _sheetController,
-              builder: (context, child) {
-                // During dismiss animation, continue sliding down from current drag offset
-                final animOffset = _sheetController.isAnimating && !_sheetVisible
-                    ? _sheetController.value * (_sheetHeight * 1.5 - _dragOffset)
-                    : 0.0;
-                return Transform.translate(
-                  offset: Offset(0, _dragOffset + animOffset),
-                  child: child,
-                );
-              },
+            child: Transform.translate(
+              offset: Offset(0, _dragOffset),
               child: _RouteInfoSheet(
                 onDismiss: _hideSheet,
                 onDragUpdate: _onDragUpdate,
