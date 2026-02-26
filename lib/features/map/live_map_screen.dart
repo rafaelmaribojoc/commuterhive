@@ -2,8 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 
-class LiveMapScreen extends StatelessWidget {
+class LiveMapScreen extends StatefulWidget {
   const LiveMapScreen({super.key});
+
+  @override
+  State<LiveMapScreen> createState() => _LiveMapScreenState();
+}
+
+class _LiveMapScreenState extends State<LiveMapScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _sheetController;
+  late final Animation<Offset> _sheetSlide;
+  bool _sheetVisible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _sheetController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _sheetSlide = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, 1.5),
+    ).animate(CurvedAnimation(
+      parent: _sheetController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
+
+  void _hideSheet() {
+    _sheetController.forward();
+    setState(() => _sheetVisible = false);
+  }
+
+  void _showSheet() {
+    _sheetController.reverse();
+    setState(() => _sheetVisible = true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -148,6 +190,15 @@ class LiveMapScreen extends StatelessWidget {
                 color: AppColors.info,
                 onTap: () {},
               ),
+              // Show route info button (visible when sheet is hidden)
+              if (!_sheetVisible) ...[
+                const SizedBox(height: 16),
+                _FloatButton(
+                  icon: Icons.directions_bus,
+                  color: AppColors.primaryDark,
+                  onTap: _showSheet,
+                ),
+              ],
             ],
           ),
         ),
@@ -157,7 +208,10 @@ class LiveMapScreen extends StatelessWidget {
           left: 20,
           right: 20,
           bottom: MediaQuery.of(context).size.height * 0.12,
-          child: _RouteInfoSheet(),
+          child: SlideTransition(
+            position: _sheetSlide,
+            child: _RouteInfoSheet(onDismiss: _hideSheet),
+          ),
         ),
       ],
     );
@@ -249,6 +303,10 @@ class _FloatButton extends StatelessWidget {
 }
 
 class _RouteInfoSheet extends StatelessWidget {
+  final VoidCallback onDismiss;
+
+  const _RouteInfoSheet({required this.onDismiss});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -267,14 +325,28 @@ class _RouteInfoSheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Drag handle
-          Container(
-            width: 48,
-            height: 6,
-            margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(3),
+          // Drag handle — tap or drag down to dismiss
+          GestureDetector(
+            onTap: onDismiss,
+            onVerticalDragEnd: (details) {
+              if (details.primaryVelocity != null &&
+                  details.primaryVelocity! > 100) {
+                onDismiss();
+              }
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Center(
+                child: Container(
+                  width: 48,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
             ),
           ),
           // Title row
