@@ -78,13 +78,18 @@ class _LiveMapScreenState extends State<LiveMapScreen>
 
     // Add bus stop markers
     final pointManager = await map.annotations.createPointAnnotationManager();
-    final statusLabels = ['Standing', 'Empty'];
+    final statusLabels = ['Seated', 'Standing', 'Full'];
     var labelIndex = 0;
 
     for (final route in _routes) {
       for (final stop in route.stops) {
         final label = statusLabels[labelIndex % statusLabels.length];
         labelIndex++;
+        
+        int labelColor;
+        if (label == 'Seated') labelColor = 0xFF00C896; // Success green
+        else if (label == 'Standing') labelColor = 0xFF430DAC; // Primary purple
+        else labelColor = 0xFFFF4747; // Error red
 
         await pointManager.create(
           mapbox.PointAnnotationOptions(
@@ -95,7 +100,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
             textField: '🚌 $label',
             textSize: 10.0,
             textOffset: [0, 1.8],
-            textColor: label == 'Empty' ? 0xFF00C896 : 0xFFFFAB00,
+            textColor: labelColor,
             textHaloColor: 0xFFFFFFFF,
             textHaloWidth: 1.5,
           ),
@@ -220,7 +225,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
               center: mapbox.Point(
                 coordinates: mapbox.Position(125.61, 7.07),
               ),
-              zoom: 13,
+              zoom: 15.5,
               pitch: 45,
               bearing: 0,
             ),
@@ -240,7 +245,7 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                   child: Row(
                     children: [
-                      // Search bar
+                      // Search bar takes full width now:
                       Expanded(
                         child: Container(
                           height: 56,
@@ -288,34 +293,6 @@ class _LiveMapScreenState extends State<LiveMapScreen>
                                     color: AppColors.primaryDark),
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Avatar button
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: const [
-                            BoxShadow(
-                              offset: Offset(0, 6),
-                              color: Color(0xFFE5E7EB),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.network(
-                            'https://picsum.photos/seed/avatar/200/200',
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.person,
-                              color: AppColors.textMuted,
-                            ),
                           ),
                         ),
                       ),
